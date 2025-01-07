@@ -78,11 +78,10 @@ void PB_init(void) {
     PORT_SEC_REGS->GROUP[0].PORT_PINCFG[23] = 0x03;
     PORT_SEC_REGS->GROUP[0].PORT_PMUX[(23 >> 1)] &= ~(0xF0);*/
     /*PA 23*/
-
-    // 31.7.1
-    PORT_SEC_REGS->GROUP[0].PORT_DIRCLR |= (1 << 23); // Set as input.
     // 31.7.14
     PORT_SEC_REGS->GROUP[0].PORT_PINCFG[23] |= 0x7; // Enables PULLEN, INEN, and PMUXEN, input with pull.
+    
+
     // 31.7.6
     PORT_SEC_REGS->GROUP[0].PORT_OUTSET |= (1 << 0); // Set as internal pull-up.
     // 31.7.13

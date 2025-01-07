@@ -42,10 +42,10 @@ int tcc3_read(void) {
     return TCC3_REGS -> TCC_COUNT;
 }
 
-int tcc0_read(void) {
-    TCC0_REGS -> TCC_CTRLBSET |= (0x4 << 5);
-    while ((TCC0_REGS -> TCC_SYNCBUSY) & (1 << 4) == 1);
-    return TCC0_REGS -> TCC_COUNT;
+int tcc1_read(void) {
+    TCC1_REGS -> TCC_CTRLBSET |= (0x4 << 5);
+    while ((TCC1_REGS -> TCC_SYNCBUSY) & (1 << 4) == 1);
+    return TCC1_REGS -> TCC_COUNT;
 }
 
 static char banner_msg[] =
@@ -171,8 +171,9 @@ static const char EMERGENCY_ON[] = "EMERGENCY MODE ON\r\n";
 int i = 0;
 volatile int ignore_init = 1;
 volatile int valid_input = 0;
-char h[] = "test";
+static const char test[] = "test";
 volatile int absent = 0;
+
 static void prog_loop_one(prog_state_t *ps) {
     uint16_t a = 0, b = 0, c = 0;
 
@@ -181,11 +182,12 @@ static void prog_loop_one(prog_state_t *ps) {
     platform_blink_modify();
 
     if (valid_input == 1) {
-        TCC0_REGS -> TCC_COUNT = 0; // Reset counter to zero.
-        while ((TCC0_REGS -> TCC_SYNCBUSY) & (1 << 4)); // This register is write-synchronized.
+        TCC1_REGS -> TCC_COUNT = 0; // Reset counter to zero.
+        while ((TCC1_REGS -> TCC_SYNCBUSY) & (1 << 4)); // This register is write-synchronized.
         valid_input = 0;
     }
-    if (tcc0_read() >= TCC0_REGS->TCC_PER || ((ps -> rx_desc_buf[0] == 0x1B) && (ps -> rx_desc_buf[1] == 0x4F) && (ps -> rx_desc_buf[2] == 0x77))) {
+    // For some reason end can either be 1b 4f 77 or 1b 5b 46
+    if (tcc1_read() >= TCC1_REGS->TCC_PER || ((ps -> rx_desc_buf[0] == 0x1B) && (ps -> rx_desc_buf[1] == 0x4f) && (ps -> rx_desc_buf[2] == 0x77))) {
         ps->tx_desc[0].buf = blank;
         ps->tx_desc[0].len = sizeof (blank) - 1;
         platform_usart_cdc_tx_async(&ps->tx_desc[0], 1);
@@ -197,8 +199,6 @@ static void prog_loop_one(prog_state_t *ps) {
         ps->tx_desc[0].buf = init_banner_msg;
         ps->tx_desc[0].len = sizeof (init_banner_msg) - 1;
         platform_usart_cdc_tx_async(&ps->tx_desc[0], 1);
-        ps->tx_desc[1].buf = h;
-        ps->tx_desc[1].len = sizeof (h) - 1;
 
         init = 1;
     }
@@ -209,6 +209,7 @@ static void prog_loop_one(prog_state_t *ps) {
             char received_char = ps->rx_desc_buf[0];
             if (received_char == CTRL_E || (received_char == 0x1B && ps -> rx_desc_buf[2] == 0x48)) {
                 ps->flags |= PROG_FLAG_BANNER_PENDING;
+                strcat(banner_msg, test);
                 ignore_init = 0;
                 absent = 0;
                 valid_input = 1;
@@ -285,7 +286,11 @@ static void prog_loop_one(prog_state_t *ps) {
 
             ps->tx_desc[0].buf = banner_msg;
             ps->tx_desc[0].len = sizeof (banner_msg) - 1;
-            platform_usart_cdc_tx_async(&ps->tx_desc[0], 1);
+//            ps->tx_desc[1].buf = "\033[12;1H\033[0Ktest\r\n";
+//            ps->tx_desc[1].len = sizeof ("\033[12;1H\033[0Ktest\r\n") - 1;
+
+            platform_usart_cdc_tx_async(ps->tx_desc, 2);
+            //platform_usart_cdc_tx_async(&ps->tx_desc[0], 1);
 
             ps->flags |= PROG_FLAG_GEN_COMPLETE;
             // Reset receive buffer immediately
@@ -307,64 +312,59 @@ static void prog_loop_one(prog_state_t *ps) {
             break;
 
         if ((ps->flags & PROG_FLAG_GEN_COMPLETE) == 0) {
-            // Message has not been generated.
-            // Echo back the received packet as a hex dump.
             if (ignore_all == 1) {
-                ps->tx_desc[0].buf = "\033[11;1H";
-                ps->tx_desc[0].len = sizeof ("\033[11;1H") - 1;
-                ps->tx_desc[1].buf = "E-STOP";
-                ps->tx_desc[1].len = sizeof ("E-STOP") - 1;
-
-                platform_usart_cdc_tx_async(&ps->tx_desc[0], 2);
+                //                ps->tx_desc[0].buf = "\033[11;1H";
+                //                ps->tx_desc[0].len = sizeof ("\033[11;1H") - 1;
+                //                ps->tx_desc[1].buf = "E-STOP";
+                //                ps->tx_desc[1].len = sizeof ("E-STOP") - 1;
+                //
+                //                platform_usart_cdc_tx_async(&ps->tx_desc[0], 2);
             }
-            memset(ps->tx_buf, 0, sizeof (ps->tx_buf));
-            if (ps->rx_desc_blen > 0) {
-                ps->tx_desc[1].len = 0;
-                ps->tx_desc[1].buf = ps->tx_buf;
-                for (a = 0, c = 0; a < ps->rx_desc_blen && c < sizeof (ps->tx_buf) - 1; ++a) {
-                    b = snprintf(ps->tx_buf + c,
-                            sizeof (ps->tx_buf) - c - 1,
-                            "%02X ", (char) (ps->rx_desc_buf[a] & 0x00FF)
-                            );
-                    c += b;
-                }
-                ps->tx_desc[1].len = c;
-            } else {
-                ps->tx_desc[1].len = 7;
-                ps->tx_desc[1].buf = "<None> ";
-            }
-            // Echo back the received packet as a hex dump.
+                        memset(ps->tx_buf, 0, sizeof (ps->tx_buf));
+                        if (ps->rx_desc_blen > 0) {
+                            ps->tx_desc[1].len = 0;
+                            ps->tx_desc[1].buf = ps->tx_buf;
+                            for (a = 0, c = 0; a < ps->rx_desc_blen && c < sizeof (ps->tx_buf) - 1; ++a) {
+                                b = snprintf(ps->tx_buf + c,
+                                        sizeof (ps->tx_buf) - c - 1,
+                                        "%02X ", (char) (ps->rx_desc_buf[a] & 0x00FF)
+                                        );
+                                c += b;
+                            }
+                            ps->tx_desc[1].len = c;
+                        } else {
+                            ps->tx_desc[1].len = 7;
+                            ps->tx_desc[1].buf = "<None> ";
+                        }
             if (ignore_all == 0 && ignore_init == 0) {
                 char received_char = ps->rx_desc_buf[0];
+                // Tab
                 if (received_char == 0x09) {
                     valid_input = 1;
+                }
+                // Space Bar
+                if (received_char == 0x20) {
+                    TCC0_REGS -> TCC_CTRLA = (0 << 1);
+                    while (TCC0_REGS->TCC_SYNCBUSY & ~(1 << 0)); // Wait for synchronization
                 }
                 if (received_char == '\033') {
                     // Escape sequence detected, could be an arrow key
                     if (ps->rx_desc_buf[1] == '[') {
+                        if (ps -> rx_desc_buf[2] == 'D' || ps -> rx_desc_buf[2] == 'C') {
+                            TCC0_REGS -> TCC_CTRLA |= (1 << 1);
+                            while (TCC0_REGS->TCC_SYNCBUSY & ~(1 << 0)); // Wait for synchronizationF
+                        }
                         switch (ps->rx_desc_buf[2]) {
                             case 'D': // Left arrow
-                                TC0_REGS -> COUNT16.TC_COUNT = 0;
-                                updateBlinkSetting(ps, false);
                                 valid_input = 1;
+                                PORT_SEC_REGS -> GROUP[0].PORT_OUTCLR = (1 << 2);
                                 break;
                             case 'C': // Right arrow
-                                TC0_REGS -> COUNT16.TC_COUNT = 0;
-                                updateBlinkSetting(ps, true);
                                 valid_input = 1;
+                                PORT_SEC_REGS -> GROUP[0].PORT_OUTSET |= (1 << 2);
                                 break;
                         }
                     }
-                } else if (received_char == 0x61 || received_char == 0x41) {
-                    TC0_REGS -> COUNT16.TC_COUNT = 0;
-                    while (TC0_REGS -> COUNT16.TC_SYNCBUSY & (1 << 4));
-                    valid_input = 1;
-                    updateBlinkSetting(ps, false);
-                } else if (received_char == 'D' || received_char == 'd') {
-                    valid_input = 1;
-                    TC0_REGS -> COUNT16.TC_COUNT = 0;
-                    while (TC0_REGS -> COUNT16.TC_SYNCBUSY & (1 << 4));
-                    updateBlinkSetting(ps, true);
                 } else {
                     // Handle other inputs as before
                     ps->flags |= PROG_FLAG_UPDATE_PENDING;

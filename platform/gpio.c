@@ -213,6 +213,15 @@ static void PA1_Debug_Init(void) {
 }
 // Initialize the platform
 
+static void PA20_Init(void){
+    PORT_SEC_REGS -> GROUP[0].PORT_PINCFG[20] |= (1 << 0); // PMUX EN: 1
+    PORT_SEC_REGS -> GROUP[0].PORT_PMUX[10] |= (0x9 << 0); // J Peripheral; TCC0 WO[6] or TCC0 CC[2]
+    PORT_SEC_REGS -> GROUP[0].PORT_DIRSET |= (1 << 20);
+}
+static void PA2_Init(void){
+    PORT_SEC_REGS -> GROUP[0].PORT_DIRSET |= (1 << 2);
+    PORT_SEC_REGS -> GROUP[0].PORT_OUTSET |= (1 << 2);
+}
 void platform_init(void) {
     // Raise the power level
     raise_perf_level();
@@ -223,9 +232,12 @@ void platform_init(void) {
 
     // Regular initialization
     TC0_Init();
+    TCC1_Init();
     TCC0_Init();
     TCC3_Init();
 
+    PA20_Init();
+    PA2_Init();
     PB_init();
     PA1_Debug_Init();
     Emergency_Pins_Init();
